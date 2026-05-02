@@ -1,0 +1,23 @@
+
+[functions.scrape_youtube_metadata]
+enabled = true
+verify_jwt = true
+import_map = "./functions/scrape_youtube_metadata/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/scrape_youtube_metadata/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/scrape_youtube_metadata/*.html" ]
+
+
+[functions.fetch_youtube_video_metadata]
+enabled = true
+verify_jwt = true
+import_map = "./functions/fetch_youtube_video_metadata/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/fetch_youtube_video_metadata/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/fetch_youtube_video_metadata/*.html" ]
