@@ -71,6 +71,19 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
 
             if (data) {
                 roomStateRef.current = data;
+                
+                const now = new Date().getTime();
+                const lastPing = data.master_last_ping ? new Date(data.master_last_ping).getTime() : 0;
+                if (!data.master_watcher_id || (now - lastPing > 10000)) {
+                    const updates = {
+                        master_watcher_id: visitorId,
+                        master_last_ping: new Date().toISOString()
+                    };
+                    await supabase.from('rooms').update(updates).eq('id', roomId);
+                    roomStateRef.current.master_watcher_id = visitorId;
+                    roomStateRef.current.master_last_ping = updates.master_last_ping;
+                }
+
                 if (data.current_video_id) {
                     setCurrentVideoId(data.current_video_id);
                 }
@@ -134,20 +147,27 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
         };
     }, [roomId]);
 
-    const updateServerState = async (state: 'playing' | 'paused' | 'unstarted', seekTime: number) => {
+    const updateServerState = async (state: 'playing' | 'paused' | 'unstarted', seekTime: number, claimMaster: boolean = true) => {
         const duration = playerRef.current?.getDuration?.() || 0;
         
-        if (roomStateRef.current) {
-            roomStateRef.current = { ...roomStateRef.current, playback_state: state, seek_time: seekTime, last_updated_by: visitorId };
-        }
-
-        await supabase.from('rooms').update({
+        const updates: any = {
             playback_state: state,
             seek_time: seekTime,
             duration,
             last_updated_by: visitorId,
             last_activity: new Date().toISOString()
-        }).eq('id', roomId);
+        };
+
+        if (claimMaster) {
+            updates.master_watcher_id = visitorId;
+            updates.master_last_ping = new Date().toISOString();
+        }
+
+        if (roomStateRef.current) {
+            roomStateRef.current = { ...roomStateRef.current, ...updates };
+        }
+
+        await supabase.from('rooms').update(updates).eq('id', roomId);
     };
 
     // periodically broadcast current time so the Assistant can show progress
@@ -156,30 +176,68 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
             if (playerRef.current && roomStateRef.current) {
                 const player = playerRef.current;
                 const state = player.getPlayerState?.();
+                const currentTime = player.getCurrentTime() || 0;
+                
+                const now = new Date().getTime();
+                const lastPing = roomStateRef.current.master_last_ping ? new Date(roomStateRef.current.master_last_ping).getTime() : 0;
+                let isMaster = roomStateRef.current.master_watcher_id === visitorId;
+                
+                if (!isMaster && (now - lastPing > 10000)) {
+                    const updates = {
+                        master_watcher_id: visitorId,
+                        master_last_ping: new Date().toISOString()
+                    };
+                    await supabase.from('rooms').update(updates).eq('id', roomId);
+                    isMaster = true;
+                    roomStateRef.current.master_watcher_id = visitorId;
+                    roomStateRef.current.master_last_ping = updates.master_last_ping;
+                }
                 
                 if (state === 1 || state === 2 || state === 3) {
-                    const currentTime = player.getCurrentTime() || 0;
-                    
                     let expectedTime = lastTimeRef.current;
                     if (state === 1) expectedTime += 2;
 
                     if (Math.abs(currentTime - expectedTime) > 4) {
                         const broadcastState = state === 1 ? 'playing' : state === 2 ? 'paused' : roomStateRef.current.playback_state;
-                        await updateServerState(broadcastState, currentTime);
-                    } else if (state === 1 && roomStateRef.current.last_updated_by === visitorId) {
-                        await supabase.from('rooms').update({
+                        await updateServerState(broadcastState, currentTime, true);
+                    } else if (isMaster && state === 1) {
+                        const updates = {
                             seek_time: currentTime,
                             duration: player.getDuration() || 0,
-                        }).eq('id', roomId);
+                            master_last_ping: new Date().toISOString()
+                        };
+                        roomStateRef.current.master_last_ping = updates.master_last_ping;
+                        await supabase.from('rooms').update(updates).eq('id', roomId);
+                    } else if (isMaster) {
+                        const updates = { master_last_ping: new Date().toISOString() };
+                        roomStateRef.current.master_last_ping = updates.master_last_ping;
+                        await supabase.from('rooms').update(updates).eq('id', roomId);
                     }
 
                     lastTimeRef.current = currentTime;
+                } else if (isMaster) {
+                    const updates = { master_last_ping: new Date().toISOString() };
+                    roomStateRef.current.master_last_ping = updates.master_last_ping;
+                    await supabase.from('rooms').update(updates).eq('id', roomId);
                 }
             }
         }, 2000);
 
         return () => clearInterval(interval);
-    }, [roomId]);
+    }, [roomId, visitorId]);
+
+    useEffect(() => {
+        const handleUnload = () => {
+            if (roomStateRef.current?.master_watcher_id === visitorId) {
+                supabase.from('rooms').update({ master_watcher_id: null }).eq('id', roomId).then();
+            }
+        };
+        window.addEventListener('beforeunload', handleUnload);
+        return () => {
+            handleUnload();
+            window.removeEventListener('beforeunload', handleUnload);
+        };
+    }, [roomId, visitorId]);
 
     const onReady = (event: YouTubeEvent) => {
         playerRef.current = event.target;
@@ -225,13 +283,13 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
 
     const onPlay = async (event: YouTubeEvent) => {
         if (roomStateRef.current?.playback_state !== 'playing') {
-            await updateServerState('playing', event.target.getCurrentTime());
+            await updateServerState('playing', event.target.getCurrentTime(), true);
         }
     };
 
     const onPause = async (event: YouTubeEvent) => {
         if (roomStateRef.current?.playback_state !== 'paused') {
-            await updateServerState('paused', event.target.getCurrentTime());
+            await updateServerState('paused', event.target.getCurrentTime(), true);
         }
     };
 
