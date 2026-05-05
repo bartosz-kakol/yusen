@@ -21,6 +21,11 @@ import QrCodeIcon from '@mui/icons-material/QrCode';
 import QueueMusicIcon from '@mui/icons-material/QueueMusic';
 import CloseFullscreenIcon from '@mui/icons-material/CloseFullscreen';
 import TvOffIcon from '@mui/icons-material/TvOff';
+import SkipNextIcon from '@mui/icons-material/SkipNext';
+import SkipPreviousIcon from '@mui/icons-material/SkipPrevious';
+import VolumeUpIcon from '@mui/icons-material/VolumeUp';
+import VolumeOffIcon from '@mui/icons-material/VolumeOff';
+import Slider from '@mui/material/Slider';
 
 interface WatcherProps {
     roomId: string;
@@ -32,8 +37,14 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
     const playerRef = useRef<YouTubePlayer | null>(null);
     const [currentVideoId, setCurrentVideoId] = useState<string | null>(null);
     const currentVideoIdRef = useRef<string | null>(null);
+    const roomStateRef = useRef<any>(null);
+    const initialSeekTimeRef = useRef<number>(0);
+    const lastTimeRef = useRef<number>(0);
+    const [hasPrevious, setHasPrevious] = useState<boolean>(false);
     const [showInvite, setShowInvite] = useState(showInviteOnMount);
     const [showQueue, setShowQueue] = useState(false);
+    const [volume, setVolume] = useState<number>(100);
+    const [isMuted, setIsMuted] = useState<boolean>(false);
     const visitorId = getVisitorId();
     const { t } = useTranslation();
 
@@ -58,8 +69,28 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
             const { data } = await supabase.from('rooms').select('*').eq('id', roomId).single();
             if (!active) return;
 
-            if (data && data.current_video_id) {
-                setCurrentVideoId(data.current_video_id);
+            if (data) {
+                roomStateRef.current = data;
+                
+                const now = new Date().getTime();
+                const lastPing = data.master_last_ping ? new Date(data.master_last_ping).getTime() : 0;
+                if (!data.master_watcher_id || (now - lastPing > 10000)) {
+                    const updates = {
+                        master_watcher_id: visitorId,
+                        master_last_ping: new Date().toISOString()
+                    };
+                    await supabase.from('rooms').update(updates).eq('id', roomId);
+                    roomStateRef.current.master_watcher_id = visitorId;
+                    roomStateRef.current.master_last_ping = updates.master_last_ping;
+                }
+
+                if (data.current_video_id) {
+                    setCurrentVideoId(data.current_video_id);
+                }
+                setHasPrevious(!!data.previous_video_id);
+                if (data.seek_time) {
+                    initialSeekTimeRef.current = data.seek_time;
+                }
             }
 
             channel = supabase.channel(`room:${roomId}`)
@@ -67,13 +98,19 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
                     const newRoom = payload.new as any;
                     if (!newRoom) return;
 
-                    if (newRoom.last_updated_by === visitorId) {
-                        // ignore our own updates to prevent loops
-                        return;
-                    }
+                    roomStateRef.current = newRoom;
 
                     if (newRoom.current_video_id !== currentVideoIdRef.current) {
                         setCurrentVideoId(newRoom.current_video_id);
+                    }
+
+                    if (newRoom.previous_video_id !== undefined) {
+                        setHasPrevious(!!newRoom.previous_video_id);
+                    }
+
+                    if (newRoom.last_updated_by === visitorId) {
+                        // ignore our own updates to prevent loops
+                        return;
                     }
 
                     if (playerRef.current) {
@@ -92,6 +129,7 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
                             
                             if (Math.abs(currentTime - newRoom.seek_time) > 2) {
                                 player.seekTo(newRoom.seek_time, true);
+                                lastTimeRef.current = newRoom.seek_time;
                             }
                         }
                     }
@@ -109,56 +147,150 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
         };
     }, [roomId]);
 
-    const updateServerState = async (state: 'playing' | 'paused' | 'unstarted', seekTime: number) => {
+    const updateServerState = async (state: 'playing' | 'paused' | 'unstarted', seekTime: number, claimMaster: boolean = true) => {
         const duration = playerRef.current?.getDuration?.() || 0;
-        await supabase.from('rooms').update({
+        
+        const updates: any = {
             playback_state: state,
             seek_time: seekTime,
             duration,
             last_updated_by: visitorId,
             last_activity: new Date().toISOString()
-        }).eq('id', roomId);
+        };
+
+        if (claimMaster) {
+            updates.master_watcher_id = visitorId;
+            updates.master_last_ping = new Date().toISOString();
+        }
+
+        if (roomStateRef.current) {
+            roomStateRef.current = { ...roomStateRef.current, ...updates };
+        }
+
+        await supabase.from('rooms').update(updates).eq('id', roomId);
     };
 
     // periodically broadcast current time so the Assistant can show progress
     useEffect(() => {
         const interval = setInterval(async () => {
-            if (playerRef.current) {
+            if (playerRef.current && roomStateRef.current) {
                 const player = playerRef.current;
                 const state = player.getPlayerState?.();
+                const currentTime = player.getCurrentTime() || 0;
                 
-                // only broadcast while playing (state 1)
-                if (state === 1) {
-                    const currentTime = player.getCurrentTime() || 0;
-                    const duration = player.getDuration() || 0;
-                    await supabase.from('rooms').update({
-                        seek_time: currentTime,
-                        duration,
-                        last_updated_by: visitorId,
-                    }).eq('id', roomId);
+                const now = new Date().getTime();
+                const lastPing = roomStateRef.current.master_last_ping ? new Date(roomStateRef.current.master_last_ping).getTime() : 0;
+                let isMaster = roomStateRef.current.master_watcher_id === visitorId;
+                
+                if (!isMaster && (now - lastPing > 10000)) {
+                    const updates = {
+                        master_watcher_id: visitorId,
+                        master_last_ping: new Date().toISOString()
+                    };
+                    await supabase.from('rooms').update(updates).eq('id', roomId);
+                    isMaster = true;
+                    roomStateRef.current.master_watcher_id = visitorId;
+                    roomStateRef.current.master_last_ping = updates.master_last_ping;
+                }
+                
+                if (state === 1 || state === 2 || state === 3) {
+                    let expectedTime = lastTimeRef.current;
+                    if (state === 1) expectedTime += 2;
+
+                    if (Math.abs(currentTime - expectedTime) > 4) {
+                        const broadcastState = state === 1 ? 'playing' : state === 2 ? 'paused' : roomStateRef.current.playback_state;
+                        await updateServerState(broadcastState, currentTime, true);
+                    } else if (isMaster && state === 1) {
+                        const updates = {
+                            seek_time: currentTime,
+                            duration: player.getDuration() || 0,
+                            master_last_ping: new Date().toISOString()
+                        };
+                        roomStateRef.current.master_last_ping = updates.master_last_ping;
+                        await supabase.from('rooms').update(updates).eq('id', roomId);
+                    } else if (isMaster) {
+                        const updates = { master_last_ping: new Date().toISOString() };
+                        roomStateRef.current.master_last_ping = updates.master_last_ping;
+                        await supabase.from('rooms').update(updates).eq('id', roomId);
+                    }
+
+                    lastTimeRef.current = currentTime;
+                } else if (isMaster) {
+                    const updates = { master_last_ping: new Date().toISOString() };
+                    roomStateRef.current.master_last_ping = updates.master_last_ping;
+                    await supabase.from('rooms').update(updates).eq('id', roomId);
                 }
             }
         }, 2000);
 
         return () => clearInterval(interval);
-    }, [roomId]);
+    }, [roomId, visitorId]);
+
+    useEffect(() => {
+        const handleUnload = () => {
+            if (roomStateRef.current?.master_watcher_id === visitorId) {
+                supabase.from('rooms').update({ master_watcher_id: null }).eq('id', roomId).then();
+            }
+        };
+        window.addEventListener('beforeunload', handleUnload);
+        return () => {
+            handleUnload();
+            window.removeEventListener('beforeunload', handleUnload);
+        };
+    }, [roomId, visitorId]);
 
     const onReady = (event: YouTubeEvent) => {
         playerRef.current = event.target;
+        event.target.setVolume(volume);
+        if (isMuted) event.target.mute();
+
+        if (initialSeekTimeRef.current > 0) {
+            event.target.seekTo(initialSeekTimeRef.current, true);
+            lastTimeRef.current = initialSeekTimeRef.current;
+            initialSeekTimeRef.current = 0;
+        }
 
         const duration = event.target.getDuration?.() || 0;
 
-        if (duration > 0) {
+        if (duration > 0 && roomStateRef.current?.duration !== duration) {
             supabase.from('rooms').update({ duration, last_updated_by: visitorId }).eq('id', roomId);
         }
     };
 
+    const handleVolumeChange = (_e: Event | React.SyntheticEvent, newValue: number | number[]) => {
+        const val = newValue as number;
+        setVolume(val);
+        if (playerRef.current) {
+            playerRef.current.setVolume(val);
+            if (val > 0 && isMuted) {
+                playerRef.current.unMute();
+                setIsMuted(false);
+            }
+        }
+    };
+
+    const toggleMute = () => {
+        if (playerRef.current) {
+            if (isMuted) {
+                playerRef.current.unMute();
+                setIsMuted(false);
+            } else {
+                playerRef.current.mute();
+                setIsMuted(true);
+            }
+        }
+    };
+
     const onPlay = async (event: YouTubeEvent) => {
-        await updateServerState('playing', event.target.getCurrentTime());
+        if (roomStateRef.current?.playback_state !== 'playing') {
+            await updateServerState('playing', event.target.getCurrentTime(), true);
+        }
     };
 
     const onPause = async (event: YouTubeEvent) => {
-        await updateServerState('paused', event.target.getCurrentTime());
+        if (roomStateRef.current?.playback_state !== 'paused') {
+            await updateServerState('paused', event.target.getCurrentTime(), true);
+        }
     };
 
     const onEnd = async () => {
@@ -208,14 +340,72 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
         }
     };
 
+    const handlePrevious = async () => {
+        const { data: roomData } = await supabase.from('rooms').select('previous_video_id, current_video_id').eq('id', roomId).single();
+        if (!roomData?.previous_video_id) return;
+
+        const prevVideoId = roomData.previous_video_id;
+
+        if (roomData.current_video_id) {
+            const { data: firstItem } = await supabase
+                .from('queue')
+                .select('sort_order')
+                .eq('room_id', roomId)
+                .order('sort_order', { ascending: true })
+                .limit(1);
+
+            const insertOrder = firstItem && firstItem.length > 0
+                ? firstItem[0].sort_order - 1
+                : 1;
+
+            await supabase.from('queue').insert({
+                id: crypto.randomUUID(),
+                room_id: roomId,
+                video_id: roomData.current_video_id,
+                sort_order: insertOrder,
+                added_by: visitorId
+            });
+        }
+
+        await supabase.from('rooms').update({
+            current_video_id: prevVideoId,
+            previous_video_id: null,
+            playback_state: 'playing',
+            seek_time: 0,
+            duration: 0,
+            last_updated_by: visitorId,
+            last_activity: new Date().toISOString()
+        }).eq('id', roomId);
+    };
+
     return (
         <Box sx={{ display: 'flex', height: '100vh', width: '100vw', bgcolor: 'black', overflow: 'hidden' }}>
             <Box sx={{ flex: 1, position: 'relative', display: 'flex', flexDirection: 'column' }}>
                 <AppBar position="absolute" color="transparent" elevation={0} sx={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.8), transparent)' }}>
                     <Toolbar sx={{ justifyContent: 'space-between' }}>
-                        <IconButton onClick={onLeave} sx={{ color: 'white' }}>
-                            <ArrowBackIcon />
-                        </IconButton>
+                        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                            <IconButton onClick={onLeave} sx={{ color: 'white' }}>
+                                <ArrowBackIcon />
+                            </IconButton>
+                            <IconButton onClick={handlePrevious} disabled={!hasPrevious} sx={{ color: hasPrevious ? 'white' : 'rgba(255,255,255,0.3)' }}>
+                                <SkipPreviousIcon />
+                            </IconButton>
+                            <IconButton onClick={onEnd} sx={{ color: 'white' }}>
+                                <SkipNextIcon />
+                            </IconButton>
+
+                            <Box sx={{ display: 'flex', alignItems: 'center', width: 120, ml: 2, gap: 1 }}>
+                                <IconButton onClick={toggleMute} sx={{ color: 'white' }} size="small">
+                                    {isMuted || volume === 0 ? <VolumeOffIcon fontSize="small" /> : <VolumeUpIcon fontSize="small" />}
+                                </IconButton>
+                                <Slider
+                                    size="small"
+                                    value={isMuted ? 0 : volume}
+                                    onChange={handleVolumeChange}
+                                    sx={{ color: 'white' }}
+                                />
+                            </Box>
+                        </Box>
                         <Box sx={{ display: 'flex', gap: 1 }}>
                             <Button
                                 variant="outlined"
@@ -253,8 +443,7 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
                                     height: '100%',
                                     playerVars: {
                                         autoplay: 1,
-                                        controls: 0,
-                                        disablekb: 1,
+                                        controls: 1,
                                         modestbranding: 1,
                                         rel: 0,
                                     },
