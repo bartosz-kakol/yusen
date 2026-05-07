@@ -25,6 +25,8 @@ import SkipNextIcon from '@mui/icons-material/SkipNext';
 import SkipPreviousIcon from '@mui/icons-material/SkipPrevious';
 import VolumeUpIcon from '@mui/icons-material/VolumeUp';
 import VolumeOffIcon from '@mui/icons-material/VolumeOff';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import PauseIcon from '@mui/icons-material/Pause';
 import Slider from '@mui/material/Slider';
 
 interface WatcherProps {
@@ -45,6 +47,12 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
     const [showQueue, setShowQueue] = useState(false);
     const [volume, setVolume] = useState<number>(100);
     const [isMuted, setIsMuted] = useState<boolean>(false);
+    const [currentTime, setCurrentTime] = useState<number>(0);
+    const [duration, setDuration] = useState<number>(0);
+    const [isPlaying, setIsPlaying] = useState<boolean>(false);
+    const [isSeeking, setIsSeeking] = useState<boolean>(false);
+    const [showControls, setShowControls] = useState<boolean>(true);
+    const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const visitorId = getVisitorId();
     const { t } = useTranslation();
 
@@ -239,6 +247,64 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
         };
     }, [roomId, visitorId]);
 
+    useEffect(() => {
+        handleMouseMove();
+        return () => {
+            if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+        };
+    }, []);
+
+    const handleMouseMove = () => {
+        setShowControls(true);
+        if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+        controlsTimeoutRef.current = setTimeout(() => setShowControls(false), 3000);
+    };
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            if (playerRef.current && !isSeeking) {
+                const time = playerRef.current.getCurrentTime() || 0;
+                setCurrentTime(time);
+                
+                const state = playerRef.current.getPlayerState?.();
+                setIsPlaying(state === 1);
+            }
+        }, 500);
+        return () => clearInterval(interval);
+    }, [isSeeking]);
+
+    const handleSeekChange = (_e: Event | React.SyntheticEvent, newValue: number | number[]) => {
+        setIsSeeking(true);
+        setCurrentTime(newValue as number);
+    };
+
+    const handleSeekCommitted = (_e: Event | React.SyntheticEvent, newValue: number | number[]) => {
+        const val = newValue as number;
+        setCurrentTime(val);
+        if (playerRef.current) {
+            playerRef.current.seekTo(val, true);
+            updateServerState(roomStateRef.current?.playback_state || 'playing', val, true);
+        }
+        setIsSeeking(false);
+    };
+
+    const togglePlayPause = () => {
+        if (!playerRef.current) return;
+        const state = playerRef.current.getPlayerState?.();
+        if (state === 1) {
+            playerRef.current.pauseVideo();
+        } else {
+            playerRef.current.playVideo();
+        }
+    };
+
+    const formatTime = (timeInSeconds: number) => {
+        if (isNaN(timeInSeconds)) return '0:00';
+        const m = Math.floor(timeInSeconds / 60);
+        const s = Math.floor(timeInSeconds % 60);
+        return `${m}:${s < 10 ? '0' : ''}${s}`;
+    };
+
     const onReady = (event: YouTubeEvent) => {
         playerRef.current = event.target;
         event.target.setVolume(volume);
@@ -250,10 +316,11 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
             initialSeekTimeRef.current = 0;
         }
 
-        const duration = event.target.getDuration?.() || 0;
+        const dur = event.target.getDuration?.() || 0;
+        setDuration(dur);
 
-        if (duration > 0 && roomStateRef.current?.duration !== duration) {
-            supabase.from('rooms').update({ duration, last_updated_by: visitorId }).eq('id', roomId);
+        if (dur > 0 && roomStateRef.current?.duration !== dur) {
+            supabase.from('rooms').update({ duration: dur, last_updated_by: visitorId }).eq('id', roomId);
         }
     };
 
@@ -379,63 +446,26 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
     };
 
     return (
-        <Box sx={{ display: 'flex', height: '100vh', width: '100vw', bgcolor: 'black', overflow: 'hidden' }}>
+        <Box 
+            sx={{ display: 'flex', height: '100vh', width: '100vw', bgcolor: 'black', overflow: 'hidden' }}
+            onMouseMove={handleMouseMove}
+            onTouchStart={handleMouseMove}
+        >
             <Box sx={{ flex: 1, position: 'relative', display: 'flex', flexDirection: 'column' }}>
-                <AppBar position="absolute" color="transparent" elevation={0} sx={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.8), transparent)' }}>
+                <AppBar position="absolute" color="transparent" elevation={0} sx={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.8), transparent)', opacity: showControls ? 1 : 0, transition: 'opacity 0.3s', pointerEvents: showControls ? 'auto' : 'none' }}>
                     <Toolbar sx={{ justifyContent: 'space-between' }}>
                         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
                             <IconButton onClick={onLeave} sx={{ color: 'white' }}>
                                 <ArrowBackIcon />
                             </IconButton>
-                            <IconButton onClick={handlePrevious} disabled={!hasPrevious} sx={{ color: hasPrevious ? 'white' : 'rgba(255,255,255,0.3)' }}>
-                                <SkipPreviousIcon />
-                            </IconButton>
-                            <IconButton onClick={onEnd} sx={{ color: 'white' }}>
-                                <SkipNextIcon />
-                            </IconButton>
-
-                            <Box sx={{ display: 'flex', alignItems: 'center', width: 120, ml: 2, gap: 1 }}>
-                                <IconButton onClick={toggleMute} sx={{ color: 'white' }} size="small">
-                                    {isMuted || volume === 0 ? <VolumeOffIcon fontSize="small" /> : <VolumeUpIcon fontSize="small" />}
-                                </IconButton>
-                                <Slider
-                                    size="small"
-                                    value={isMuted ? 0 : volume}
-                                    onChange={handleVolumeChange}
-                                    sx={{ color: 'white' }}
-                                />
-                            </Box>
-                        </Box>
-                        <Box sx={{ display: 'flex', gap: 1 }}>
-                            <Button
-                                variant="outlined"
-                                color="inherit"
-                                onClick={() => setShowQueue(!showQueue)}
-                                startIcon={showQueue ? <CloseFullscreenIcon /> : <QueueMusicIcon />}
-                                sx={{ bgcolor: 'rgba(0,0,0,0.5)', borderColor: 'rgba(255,255,255,0.2)' }}
-                            >
-                                <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>
-                                    {showQueue ? t('hide_queue') : t('show_queue')}
-                                </Box>
-                            </Button>
-                            <Button
-                                variant="outlined"
-                                color="inherit"
-                                onClick={() => setShowInvite(true)}
-                                startIcon={<QrCodeIcon />}
-                                sx={{ bgcolor: 'rgba(0,0,0,0.5)', borderColor: 'rgba(255,255,255,0.2)' }}
-                            >
-                                <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>
-                                    {t('invite')}
-                                </Box>
-                            </Button>
                         </Box>
                     </Toolbar>
                 </AppBar>
 
                 <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
                     {currentVideoId ? (
-                        <Box sx={{ width: '100%', height: '100%', pointerEvents: 'auto' }}>
+                        <Box sx={{ width: '100%', height: '100%', pointerEvents: 'auto', position: 'relative' }}>
+                            <Box sx={{ position: 'absolute', inset: 0, zIndex: 1 }} />
                             <YouTube
                                 videoId={currentVideoId}
                                 opts={{
@@ -443,9 +473,10 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
                                     height: '100%',
                                     playerVars: {
                                         autoplay: 1,
-                                        controls: 1,
+                                        controls: 0,
                                         modestbranding: 1,
                                         rel: 0,
+                                        disablekb: 1,
                                     },
                                 }}
                                 onReady={onReady}
@@ -462,6 +493,72 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
                             <Typography>{t('nothing_playing_watcher')}</Typography>
                         </Box>
                     )}
+                </Box>
+
+                <Box sx={{
+                    position: 'absolute',
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    background: 'linear-gradient(to top, rgba(0,0,0,1), rgba(0,0,0,0.67), transparent)',
+                    p: 2,
+                    pt: 4,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 2,
+                    opacity: showControls ? 1 : 0,
+                    transition: 'opacity 0.3s',
+                    pointerEvents: showControls ? 'auto' : 'none',
+                    zIndex: 10
+                }}>
+                    <IconButton onClick={handlePrevious} disabled={!hasPrevious} sx={{ color: hasPrevious ? 'white' : 'rgba(255,255,255,0.3)' }}>
+                        <SkipPreviousIcon />
+                    </IconButton>
+
+                    <IconButton onClick={togglePlayPause} sx={{ color: 'white' }}>
+                        {isPlaying ? <PauseIcon /> : <PlayArrowIcon />}
+                    </IconButton>
+
+                    <IconButton onClick={onEnd} sx={{ color: 'white' }}>
+                        <SkipNextIcon />
+                    </IconButton>
+
+                    <Typography variant="body2" sx={{ color: 'white', minWidth: 40, textAlign: 'center' }}>
+                        {formatTime(currentTime)}
+                    </Typography>
+
+                    <Slider
+                        size="small"
+                        value={currentTime}
+                        max={duration > 0 ? duration : 100}
+                        onChange={handleSeekChange}
+                        onChangeCommitted={handleSeekCommitted}
+                        sx={{ color: 'white', flex: 1, mx: 1 }}
+                    />
+
+                    <Typography variant="body2" sx={{ color: 'white', minWidth: 40, textAlign: 'center' }}>
+                        {formatTime(duration)}
+                    </Typography>
+
+                    <Box sx={{ display: 'flex', alignItems: 'center', width: { xs: 80, sm: 120 }, ml: 1, mr: 1, gap: 1 }}>
+                        <IconButton onClick={toggleMute} sx={{ color: 'white' }} size="small">
+                            {isMuted || volume === 0 ? <VolumeOffIcon fontSize="small" /> : <VolumeUpIcon fontSize="small" />}
+                        </IconButton>
+                        <Slider
+                            size="small"
+                            value={isMuted ? 0 : volume}
+                            onChange={handleVolumeChange}
+                            sx={{ color: 'white' }}
+                        />
+                    </Box>
+
+                    <IconButton onClick={() => setShowQueue(!showQueue)} sx={{ color: 'white' }}>
+                        <QueueMusicIcon />
+                    </IconButton>
+                    
+                    <IconButton onClick={() => setShowInvite(true)} sx={{ color: 'white' }}>
+                        <QrCodeIcon />
+                    </IconButton>
                 </Box>
             </Box>
 
