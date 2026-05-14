@@ -53,3 +53,8 @@ next-env.d.ts
 !.dev.vars.example
 
 !.env.example
+
+# PWA
+public/sw.js
+public/sw.js.map
+public/swe-worker-*
