@@ -52,6 +52,7 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
     const [isPlaying, setIsPlaying] = useState<boolean>(false);
     const [isSeeking, setIsSeeking] = useState<boolean>(false);
     const [showControls, setShowControls] = useState<boolean>(true);
+    const [isMasterWatcher, setIsMasterWatcher] = useState<boolean>(false);
     const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const visitorId = getVisitorId();
     const { t } = useTranslation();
@@ -80,16 +81,15 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
             if (data) {
                 roomStateRef.current = data;
                 
-                const now = new Date().getTime();
-                const lastPing = data.master_last_ping ? new Date(data.master_last_ping).getTime() : 0;
-                if (!data.master_watcher_id || (now - lastPing > 10000)) {
+                if (!data.master_watcher_id) {
                     const updates = {
-                        master_watcher_id: visitorId,
-                        master_last_ping: new Date().toISOString()
+                        master_watcher_id: visitorId
                     };
                     await supabase.from('rooms').update(updates).eq('id', roomId);
                     roomStateRef.current.master_watcher_id = visitorId;
-                    roomStateRef.current.master_last_ping = updates.master_last_ping;
+                    setIsMasterWatcher(true);
+                } else {
+                    setIsMasterWatcher(data.master_watcher_id === visitorId);
                 }
 
                 if (data.current_video_id) {
@@ -114,6 +114,10 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
 
                     if (newRoom.previous_video_id !== undefined) {
                         setHasPrevious(!!newRoom.previous_video_id);
+                    }
+
+                    if (newRoom.master_watcher_id !== undefined) {
+                        setIsMasterWatcher(newRoom.master_watcher_id === visitorId);
                     }
 
                     if (newRoom.last_updated_by === visitorId) {
@@ -168,7 +172,7 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
 
         if (claimMaster) {
             updates.master_watcher_id = visitorId;
-            updates.master_last_ping = new Date().toISOString();
+            setIsMasterWatcher(true);
         }
 
         if (roomStateRef.current) {
@@ -186,20 +190,7 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
                 const state = player.getPlayerState?.();
                 const currentTime = player.getCurrentTime() || 0;
                 
-                const now = new Date().getTime();
-                const lastPing = roomStateRef.current.master_last_ping ? new Date(roomStateRef.current.master_last_ping).getTime() : 0;
-                let isMaster = roomStateRef.current.master_watcher_id === visitorId;
-                
-                if (!isMaster && (now - lastPing > 10000)) {
-                    const updates = {
-                        master_watcher_id: visitorId,
-                        master_last_ping: new Date().toISOString()
-                    };
-                    await supabase.from('rooms').update(updates).eq('id', roomId);
-                    isMaster = true;
-                    roomStateRef.current.master_watcher_id = visitorId;
-                    roomStateRef.current.master_last_ping = updates.master_last_ping;
-                }
+                const isMaster = roomStateRef.current.master_watcher_id === visitorId;
                 
                 if (state === 1 || state === 2 || state === 3) {
                     let expectedTime = lastTimeRef.current;
@@ -211,22 +202,12 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
                     } else if (isMaster && state === 1) {
                         const updates = {
                             seek_time: currentTime,
-                            duration: player.getDuration() || 0,
-                            master_last_ping: new Date().toISOString()
+                            duration: player.getDuration() || 0
                         };
-                        roomStateRef.current.master_last_ping = updates.master_last_ping;
-                        await supabase.from('rooms').update(updates).eq('id', roomId);
-                    } else if (isMaster) {
-                        const updates = { master_last_ping: new Date().toISOString() };
-                        roomStateRef.current.master_last_ping = updates.master_last_ping;
                         await supabase.from('rooms').update(updates).eq('id', roomId);
                     }
 
                     lastTimeRef.current = currentTime;
-                } else if (isMaster) {
-                    const updates = { master_last_ping: new Date().toISOString() };
-                    roomStateRef.current.master_last_ping = updates.master_last_ping;
-                    await supabase.from('rooms').update(updates).eq('id', roomId);
                 }
             }
         }, 2000);
@@ -377,7 +358,8 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
                 playback_state: 'playing',
                 seek_time: 0,
                 last_updated_by: visitorId,
-                last_activity: new Date().toISOString()
+                last_activity: new Date().toISOString(),
+                master_watcher_id: visitorId
             };
 
             // save current video as previous
@@ -385,6 +367,8 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
                 updates.previous_video_id = currentVideoId;
             }
 
+            setIsMasterWatcher(true);
+            if (roomStateRef.current) roomStateRef.current.master_watcher_id = visitorId;
             await supabase.from('rooms').update(updates).eq('id', roomId);
 
             // remove from queue
@@ -396,13 +380,16 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
                 playback_state: 'unstarted',
                 seek_time: 0,
                 last_updated_by: visitorId,
-                last_activity: new Date().toISOString()
+                last_activity: new Date().toISOString(),
+                master_watcher_id: visitorId
             };
 
             if (currentVideoId) {
                 updates.previous_video_id = currentVideoId;
             }
 
+            setIsMasterWatcher(true);
+            if (roomStateRef.current) roomStateRef.current.master_watcher_id = visitorId;
             await supabase.from('rooms').update(updates).eq('id', roomId);
         }
     };
@@ -434,6 +421,9 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
             });
         }
 
+        setIsMasterWatcher(true);
+        if (roomStateRef.current) roomStateRef.current.master_watcher_id = visitorId;
+
         await supabase.from('rooms').update({
             current_video_id: prevVideoId,
             previous_video_id: null,
@@ -441,7 +431,8 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
             seek_time: 0,
             duration: 0,
             last_updated_by: visitorId,
-            last_activity: new Date().toISOString()
+            last_activity: new Date().toISOString(),
+            master_watcher_id: visitorId
         }).eq('id', roomId);
     };
 
@@ -453,10 +444,27 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
         >
             <Box sx={{ flex: 1, position: 'relative', display: 'flex', flexDirection: 'column' }}>
                 <AppBar position="absolute" color="transparent" elevation={0} sx={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.8), transparent)', opacity: showControls ? 1 : 0, transition: 'opacity 0.3s', pointerEvents: showControls ? 'auto' : 'none' }}>
-                    <Toolbar sx={{ justifyContent: 'space-between' }}>
+                    <Toolbar sx={{ justifyContent: 'space-between', position: 'relative' }}>
                         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
                             <IconButton onClick={onLeave} sx={{ color: 'white' }}>
                                 <ArrowBackIcon />
+                            </IconButton>
+                        </Box>
+
+                        {isMasterWatcher && (
+                            <Box sx={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'primary.main' }} />
+                                <Typography variant="overline" sx={{ color: 'primary.main', fontWeight: 'bold', lineHeight: 1 }}>MASTER</Typography>
+                            </Box>
+                        )}
+
+                        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                            <IconButton onClick={() => setShowQueue(!showQueue)} sx={{ color: 'white' }}>
+                                <QueueMusicIcon />
+                            </IconButton>
+                            
+                            <IconButton onClick={() => setShowInvite(true)} sx={{ color: 'white' }}>
+                                <QrCodeIcon />
                             </IconButton>
                         </Box>
                     </Toolbar>
@@ -477,14 +485,14 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
                                         modestbranding: 1,
                                         rel: 0,
                                         disablekb: 1,
+                                        iv_load_policy: 3,
                                     },
                                 }}
                                 onReady={onReady}
                                 onPlay={onPlay}
                                 onPause={onPause}
                                 onEnd={onEnd}
-                                style={{ width: '100%', height: '100%' }}
-                                className="w-full h-full"
+                                style={{ width: '100%', height: 'calc(100% + 120px)', position: 'relative', top: '-60px' }}
                             />
                         </Box>
                     ) : (
@@ -505,7 +513,7 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
                     pt: 4,
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 2,
+                    gap: 1,
                     opacity: showControls ? 1 : 0,
                     transition: 'opacity 0.3s',
                     pointerEvents: showControls ? 'auto' : 'none',
@@ -551,14 +559,6 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
                             sx={{ color: 'white' }}
                         />
                     </Box>
-
-                    <IconButton onClick={() => setShowQueue(!showQueue)} sx={{ color: 'white' }}>
-                        <QueueMusicIcon />
-                    </IconButton>
-                    
-                    <IconButton onClick={() => setShowInvite(true)} sx={{ color: 'white' }}>
-                        <QrCodeIcon />
-                    </IconButton>
                 </Box>
             </Box>
 
