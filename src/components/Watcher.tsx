@@ -1,33 +1,31 @@
-'use client';
+"use client";
 
-import { useEffect, useRef, useState } from 'react';
-import YouTube, { YouTubeEvent, YouTubePlayer } from 'react-youtube';
-import { supabase } from '@/lib/supabase';
-import { getVisitorId } from '@/lib/visitor';
-import InviteModal from './InviteModal';
-import Queue from './Queue';
-import { useTranslation } from '@/lib/i18n';
+import { useEffect, useRef, useState } from "react";
+import YouTube, { YouTubeEvent, YouTubePlayer } from "react-youtube";
+import { supabase } from "@/lib/supabase";
+import { getVisitorId } from "@/lib/visitor";
+import InviteModal from "./InviteModal";
+import Queue from "./Queue";
+import { useTranslation } from "@/lib/i18n";
 
-import Box from '@mui/material/Box';
-import AppBar from '@mui/material/AppBar';
-import Toolbar from '@mui/material/Toolbar';
-import IconButton from '@mui/material/IconButton';
-import Button from '@mui/material/Button';
-import Typography from '@mui/material/Typography';
-import Drawer from '@mui/material/Drawer';
+import Box from "@mui/material/Box";
+import AppBar from "@mui/material/AppBar";
+import Toolbar from "@mui/material/Toolbar";
+import IconButton from "@mui/material/IconButton";
+import Typography from "@mui/material/Typography";
+import Drawer from "@mui/material/Drawer";
 
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import QrCodeIcon from '@mui/icons-material/QrCode';
-import QueueMusicIcon from '@mui/icons-material/QueueMusic';
-import CloseFullscreenIcon from '@mui/icons-material/CloseFullscreen';
-import TvOffIcon from '@mui/icons-material/TvOff';
-import SkipNextIcon from '@mui/icons-material/SkipNext';
-import SkipPreviousIcon from '@mui/icons-material/SkipPrevious';
-import VolumeUpIcon from '@mui/icons-material/VolumeUp';
-import VolumeOffIcon from '@mui/icons-material/VolumeOff';
-import PlayArrowIcon from '@mui/icons-material/PlayArrow';
-import PauseIcon from '@mui/icons-material/Pause';
-import Slider from '@mui/material/Slider';
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import QrCodeIcon from "@mui/icons-material/QrCode";
+import QueueMusicIcon from "@mui/icons-material/QueueMusic";
+import TvOffIcon from "@mui/icons-material/TvOff";
+import SkipNextIcon from "@mui/icons-material/SkipNext";
+import SkipPreviousIcon from "@mui/icons-material/SkipPrevious";
+import VolumeUpIcon from "@mui/icons-material/VolumeUp";
+import VolumeOffIcon from "@mui/icons-material/VolumeOff";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import PauseIcon from "@mui/icons-material/Pause";
+import Slider from "@mui/material/Slider";
 
 interface WatcherProps {
     roomId: string;
@@ -67,15 +65,15 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
         let channel: any;
 
         const setupRoom = async () => {
-            await supabase.from('rooms').upsert({
+            await supabase.from("rooms").upsert({
                 id: roomId,
                 last_activity: new Date().toISOString()
-            }, { onConflict: 'id' });
+            }, { onConflict: "id" });
 
             if (!active) return;
 
             // fetch initial state
-            const { data } = await supabase.from('rooms').select('*').eq('id', roomId).single();
+            const { data } = await supabase.from("rooms").select("*").eq("id", roomId).single();
             if (!active) return;
 
             if (data) {
@@ -85,7 +83,7 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
                     const updates = {
                         master_watcher_id: visitorId
                     };
-                    await supabase.from('rooms').update(updates).eq('id', roomId);
+                    await supabase.from("rooms").update(updates).eq("id", roomId);
                     roomStateRef.current.master_watcher_id = visitorId;
                     setIsMasterWatcher(true);
                 } else {
@@ -102,7 +100,7 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
             }
 
             channel = supabase.channel(`room:${roomId}`)
-                .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms', filter: `id=eq.${roomId}` }, (payload) => {
+                .on("postgres_changes", { event: "*", schema: "public", table: "rooms", filter: `id=eq.${roomId}` }, (payload) => {
                     const newRoom = payload.new as any;
                     if (!newRoom) return;
 
@@ -129,9 +127,9 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
                         const player = playerRef.current;
 
                         // sync playback state
-                        if (newRoom.playback_state === 'playing') {
+                        if (newRoom.playback_state === "playing") {
                             player.playVideo();
-                        } else if (newRoom.playback_state === 'paused') {
+                        } else if (newRoom.playback_state === "paused") {
                             player.pauseVideo();
                         }
 
@@ -159,7 +157,7 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
         };
     }, [roomId]);
 
-    const updateServerState = async (state: 'playing' | 'paused' | 'unstarted', seekTime: number, claimMaster: boolean = true) => {
+    const updateServerState = async (state: "playing" | "paused" | "unstarted", seekTime: number, claimMaster: boolean = true) => {
         const duration = playerRef.current?.getDuration?.() || 0;
         
         const updates: any = {
@@ -179,7 +177,7 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
             roomStateRef.current = { ...roomStateRef.current, ...updates };
         }
 
-        await supabase.from('rooms').update(updates).eq('id', roomId);
+        await supabase.from("rooms").update(updates).eq("id", roomId);
     };
 
     // periodically broadcast current time so the Assistant can show progress
@@ -197,14 +195,14 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
                     if (state === 1) expectedTime += 2;
 
                     if (Math.abs(currentTime - expectedTime) > 4) {
-                        const broadcastState = state === 1 ? 'playing' : state === 2 ? 'paused' : roomStateRef.current.playback_state;
+                        const broadcastState = state === 1 ? "playing" : state === 2 ? "paused" : roomStateRef.current.playback_state;
                         await updateServerState(broadcastState, currentTime, true);
                     } else if (isMaster && state === 1) {
                         const updates = {
                             seek_time: currentTime,
                             duration: player.getDuration() || 0
                         };
-                        await supabase.from('rooms').update(updates).eq('id', roomId);
+                        await supabase.from("rooms").update(updates).eq("id", roomId);
                     }
 
                     lastTimeRef.current = currentTime;
@@ -218,13 +216,13 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
     useEffect(() => {
         const handleUnload = () => {
             if (roomStateRef.current?.master_watcher_id === visitorId) {
-                supabase.from('rooms').update({ master_watcher_id: null }).eq('id', roomId).then();
+                supabase.from("rooms").update({ master_watcher_id: null }).eq("id", roomId).then();
             }
         };
-        window.addEventListener('beforeunload', handleUnload);
+        window.addEventListener("beforeunload", handleUnload);
         return () => {
             handleUnload();
-            window.removeEventListener('beforeunload', handleUnload);
+            window.removeEventListener("beforeunload", handleUnload);
         };
     }, [roomId, visitorId]);
 
@@ -264,7 +262,7 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
         setCurrentTime(val);
         if (playerRef.current) {
             playerRef.current.seekTo(val, true);
-            updateServerState(roomStateRef.current?.playback_state || 'playing', val, true);
+            updateServerState(roomStateRef.current?.playback_state || "playing", val, true);
         }
         setIsSeeking(false);
     };
@@ -280,10 +278,10 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
     };
 
     const formatTime = (timeInSeconds: number) => {
-        if (isNaN(timeInSeconds)) return '0:00';
+        if (isNaN(timeInSeconds)) return "0:00";
         const m = Math.floor(timeInSeconds / 60);
         const s = Math.floor(timeInSeconds % 60);
-        return `${m}:${s < 10 ? '0' : ''}${s}`;
+        return `${m}:${s < 10 ? "0" : ""}${s}`;
     };
 
     const onReady = (event: YouTubeEvent) => {
@@ -301,7 +299,7 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
         setDuration(dur);
 
         if (dur > 0 && roomStateRef.current?.duration !== dur) {
-            supabase.from('rooms').update({ duration: dur, last_updated_by: visitorId }).eq('id', roomId);
+            supabase.from("rooms").update({ duration: dur, last_updated_by: visitorId }).eq("id", roomId);
         }
     };
 
@@ -330,24 +328,24 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
     };
 
     const onPlay = async (event: YouTubeEvent) => {
-        if (roomStateRef.current?.playback_state !== 'playing') {
-            await updateServerState('playing', event.target.getCurrentTime(), true);
+        if (roomStateRef.current?.playback_state !== "playing") {
+            await updateServerState("playing", event.target.getCurrentTime(), true);
         }
     };
 
     const onPause = async (event: YouTubeEvent) => {
-        if (roomStateRef.current?.playback_state !== 'paused') {
-            await updateServerState('paused', event.target.getCurrentTime(), true);
+        if (roomStateRef.current?.playback_state !== "paused") {
+            await updateServerState("paused", event.target.getCurrentTime(), true);
         }
     };
 
     const onEnd = async () => {
         // attempt to play next video from queue
         const { data: queueData } = await supabase
-            .from('queue')
-            .select('*')
-            .eq('room_id', roomId)
-            .order('sort_order', { ascending: true })
+            .from("queue")
+            .select("*")
+            .eq("room_id", roomId)
+            .order("sort_order", { ascending: true })
             .limit(1);
 
         if (queueData && queueData.length > 0) {
@@ -355,7 +353,7 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
 
             const updates: any = {
                 current_video_id: nextVideo.video_id,
-                playback_state: 'playing',
+                playback_state: "playing",
                 seek_time: 0,
                 last_updated_by: visitorId,
                 last_activity: new Date().toISOString(),
@@ -369,15 +367,15 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
 
             setIsMasterWatcher(true);
             if (roomStateRef.current) roomStateRef.current.master_watcher_id = visitorId;
-            await supabase.from('rooms').update(updates).eq('id', roomId);
+            await supabase.from("rooms").update(updates).eq("id", roomId);
 
             // remove from queue
-            await supabase.from('queue').delete().eq('id', nextVideo.id);
+            await supabase.from("queue").delete().eq("id", nextVideo.id);
         } else {
             // nothing in queue, so stop and save previous
             const updates: any = {
                 current_video_id: null,
-                playback_state: 'unstarted',
+                playback_state: "unstarted",
                 seek_time: 0,
                 last_updated_by: visitorId,
                 last_activity: new Date().toISOString(),
@@ -390,29 +388,29 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
 
             setIsMasterWatcher(true);
             if (roomStateRef.current) roomStateRef.current.master_watcher_id = visitorId;
-            await supabase.from('rooms').update(updates).eq('id', roomId);
+            await supabase.from("rooms").update(updates).eq("id", roomId);
         }
     };
 
     const handlePrevious = async () => {
-        const { data: roomData } = await supabase.from('rooms').select('previous_video_id, current_video_id').eq('id', roomId).single();
+        const { data: roomData } = await supabase.from("rooms").select("previous_video_id, current_video_id").eq("id", roomId).single();
         if (!roomData?.previous_video_id) return;
 
         const prevVideoId = roomData.previous_video_id;
 
         if (roomData.current_video_id) {
             const { data: firstItem } = await supabase
-                .from('queue')
-                .select('sort_order')
-                .eq('room_id', roomId)
-                .order('sort_order', { ascending: true })
+                .from("queue")
+                .select("sort_order")
+                .eq("room_id", roomId)
+                .order("sort_order", { ascending: true })
                 .limit(1);
 
             const insertOrder = firstItem && firstItem.length > 0
                 ? firstItem[0].sort_order - 1
                 : 1;
 
-            await supabase.from('queue').insert({
+            await supabase.from("queue").insert({
                 id: crypto.randomUUID(),
                 room_id: roomId,
                 video_id: roomData.current_video_id,
@@ -424,61 +422,61 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
         setIsMasterWatcher(true);
         if (roomStateRef.current) roomStateRef.current.master_watcher_id = visitorId;
 
-        await supabase.from('rooms').update({
+        await supabase.from("rooms").update({
             current_video_id: prevVideoId,
             previous_video_id: null,
-            playback_state: 'playing',
+            playback_state: "playing",
             seek_time: 0,
             duration: 0,
             last_updated_by: visitorId,
             last_activity: new Date().toISOString(),
             master_watcher_id: visitorId
-        }).eq('id', roomId);
+        }).eq("id", roomId);
     };
 
     return (
         <Box 
-            sx={{ display: 'flex', height: '100vh', width: '100vw', bgcolor: 'black', overflow: 'hidden' }}
+            sx={{ display: "flex", height: "100vh", width: "100vw", bgcolor: "black", overflow: "hidden" }}
             onMouseMove={handleMouseMove}
             onTouchStart={handleMouseMove}
         >
-            <Box sx={{ flex: 1, position: 'relative', display: 'flex', flexDirection: 'column' }}>
-                <AppBar position="absolute" color="transparent" elevation={0} sx={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.8), transparent)', opacity: showControls ? 1 : 0, transition: 'opacity 0.3s', pointerEvents: showControls ? 'auto' : 'none' }}>
-                    <Toolbar sx={{ justifyContent: 'space-between', position: 'relative' }}>
-                        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                            <IconButton onClick={onLeave} sx={{ color: 'white' }}>
+            <Box sx={{ flex: 1, position: "relative", display: "flex", flexDirection: "column" }}>
+                <AppBar position="absolute" color="transparent" elevation={0} sx={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.8), transparent)", opacity: showControls ? 1 : 0, transition: "opacity 0.3s", pointerEvents: showControls ? "auto" : "none" }}>
+                    <Toolbar sx={{ justifyContent: "space-between", position: "relative" }}>
+                        <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+                            <IconButton onClick={onLeave} sx={{ color: "white" }}>
                                 <ArrowBackIcon />
                             </IconButton>
                         </Box>
 
                         {isMasterWatcher && (
-                            <Box sx={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', display: 'flex', alignItems: 'center', gap: 1 }}>
-                                <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'primary.main' }} />
-                                <Typography variant="overline" sx={{ color: 'primary.main', fontWeight: 'bold', lineHeight: 1 }}>MASTER</Typography>
+                            <Box sx={{ position: "absolute", left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", gap: 1 }}>
+                                <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: "primary.main" }} />
+                                <Typography variant="overline" sx={{ color: "primary.main", fontWeight: "bold", lineHeight: 1 }}>MASTER</Typography>
                             </Box>
                         )}
 
-                        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                            <IconButton onClick={() => setShowQueue(!showQueue)} sx={{ color: 'white' }}>
+                        <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+                            <IconButton onClick={() => setShowQueue(!showQueue)} sx={{ color: "white" }}>
                                 <QueueMusicIcon />
                             </IconButton>
                             
-                            <IconButton onClick={() => setShowInvite(true)} sx={{ color: 'white' }}>
+                            <IconButton onClick={() => setShowInvite(true)} sx={{ color: "white" }}>
                                 <QrCodeIcon />
                             </IconButton>
                         </Box>
                     </Toolbar>
                 </AppBar>
 
-                <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+                <Box sx={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
                     {currentVideoId ? (
-                        <Box sx={{ width: '100%', height: '100%', pointerEvents: 'auto', position: 'relative' }}>
-                            <Box sx={{ position: 'absolute', inset: 0, zIndex: 1 }} />
+                        <Box sx={{ width: "100%", height: "100%", pointerEvents: "auto", position: "relative" }}>
+                            <Box sx={{ position: "absolute", inset: 0, zIndex: 1 }} />
                             <YouTube
                                 videoId={currentVideoId}
                                 opts={{
-                                    width: '100%',
-                                    height: '100%',
+                                    width: "100%",
+                                    height: "100%",
                                     playerVars: {
                                         autoplay: 1,
                                         controls: 0,
@@ -492,46 +490,46 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
                                 onPlay={onPlay}
                                 onPause={onPause}
                                 onEnd={onEnd}
-                                style={{ width: '100%', height: 'calc(100% + 120px)', position: 'relative', top: '-60px' }}
+                                style={{ width: "100%", height: "calc(100% + 120px)", position: "relative", top: "-60px" }}
                             />
                         </Box>
                     ) : (
-                        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, color: 'text.secondary' }}>
+                        <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, color: "text.secondary" }}>
                             <TvOffIcon sx={{ fontSize: 64 }} />
-                            <Typography>{t('nothing_playing_watcher')}</Typography>
+                            <Typography>{t("nothing_playing_watcher")}</Typography>
                         </Box>
                     )}
                 </Box>
 
                 <Box sx={{
-                    position: 'absolute',
+                    position: "absolute",
                     bottom: 0,
                     left: 0,
                     right: 0,
-                    background: 'linear-gradient(to top, rgba(0,0,0,1), rgba(0,0,0,0.67), transparent)',
+                    background: "linear-gradient(to top, rgba(0,0,0,1), rgba(0,0,0,0.67), transparent)",
                     p: 2,
                     pt: 4,
-                    display: 'flex',
-                    alignItems: 'center',
+                    display: "flex",
+                    alignItems: "center",
                     gap: 1,
                     opacity: showControls ? 1 : 0,
-                    transition: 'opacity 0.3s',
-                    pointerEvents: showControls ? 'auto' : 'none',
+                    transition: "opacity 0.3s",
+                    pointerEvents: showControls ? "auto" : "none",
                     zIndex: 10
                 }}>
-                    <IconButton onClick={handlePrevious} disabled={!hasPrevious} sx={{ color: hasPrevious ? 'white' : 'rgba(255,255,255,0.3)' }}>
+                    <IconButton onClick={handlePrevious} disabled={!hasPrevious} sx={{ color: hasPrevious ? "white" : "rgba(255,255,255,0.3)" }}>
                         <SkipPreviousIcon />
                     </IconButton>
 
-                    <IconButton onClick={togglePlayPause} sx={{ color: 'white' }}>
+                    <IconButton onClick={togglePlayPause} sx={{ color: "white" }}>
                         {isPlaying ? <PauseIcon /> : <PlayArrowIcon />}
                     </IconButton>
 
-                    <IconButton onClick={onEnd} sx={{ color: 'white' }}>
+                    <IconButton onClick={onEnd} sx={{ color: "white" }}>
                         <SkipNextIcon />
                     </IconButton>
 
-                    <Typography variant="body2" sx={{ color: 'white', minWidth: 40, textAlign: 'center' }}>
+                    <Typography variant="body2" sx={{ color: "white", minWidth: 40, textAlign: "center" }}>
                         {formatTime(currentTime)}
                     </Typography>
 
@@ -541,22 +539,22 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
                         max={duration > 0 ? duration : 100}
                         onChange={handleSeekChange}
                         onChangeCommitted={handleSeekCommitted}
-                        sx={{ color: 'white', flex: 1, mx: 1 }}
+                        sx={{ color: "white", flex: 1, mx: 1 }}
                     />
 
-                    <Typography variant="body2" sx={{ color: 'white', minWidth: 40, textAlign: 'center' }}>
+                    <Typography variant="body2" sx={{ color: "white", minWidth: 40, textAlign: "center" }}>
                         {formatTime(duration)}
                     </Typography>
 
-                    <Box sx={{ display: 'flex', alignItems: 'center', width: { xs: 80, sm: 120 }, ml: 1, mr: 1, gap: 1 }}>
-                        <IconButton onClick={toggleMute} sx={{ color: 'white' }} size="small">
+                    <Box sx={{ display: "flex", alignItems: "center", width: { xs: 80, sm: 120 }, ml: 1, mr: 1, gap: 1 }}>
+                        <IconButton onClick={toggleMute} sx={{ color: "white" }} size="small">
                             {isMuted || volume === 0 ? <VolumeOffIcon fontSize="small" /> : <VolumeUpIcon fontSize="small" />}
                         </IconButton>
                         <Slider
                             size="small"
                             value={isMuted ? 0 : volume}
                             onChange={handleVolumeChange}
-                            sx={{ color: 'white' }}
+                            sx={{ color: "white" }}
                         />
                     </Box>
                 </Box>
@@ -568,17 +566,17 @@ export default function Watcher({ roomId, onLeave, showInviteOnMount = false }: 
                 onClose={() => setShowQueue(false)}
                 slotProps={{ paper: {
                     sx: {
-                        width: { xs: '100%', sm: 350 },
-                        bgcolor: 'background.paper',
-                        borderLeft: '1px solid',
-                        borderColor: 'divider',
+                        width: { xs: "100%", sm: 350 },
+                        bgcolor: "background.paper",
+                        borderLeft: "1px solid",
+                        borderColor: "divider",
                         p: 2,
-                        boxSizing: 'border-box'
+                        boxSizing: "border-box"
                     }
                 }}}
             >
                 <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
-                    {t('queue')}
+                    {t("queue")}
                 </Typography>
                 <Queue roomId={roomId} />
             </Drawer>
