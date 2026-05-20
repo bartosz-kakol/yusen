@@ -12,7 +12,7 @@ import CircularProgress from "@mui/material/CircularProgress";
 
 import AddCircleOutlinedIcon from "@mui/icons-material/AddCircleOutlined";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
-import { useTranslation } from "@/lib/i18n";
+import { useTranslation } from "react-i18next";
 import { Container } from "@mui/material";
 
 export default function LandingPage() {

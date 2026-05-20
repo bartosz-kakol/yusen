@@ -15,7 +15,7 @@ import TvIcon from "@mui/icons-material/Tv";
 import SmartphoneIcon from "@mui/icons-material/Smartphone";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
-import { useTranslation } from "@/lib/i18n";
+import { useTranslation } from "react-i18next";
 
 type Role = "none" | "watcher" | "assistant";
 

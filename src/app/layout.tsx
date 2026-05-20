@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import ThemeRegistry from "@/components/ThemeRegistry";
 
 export const viewport: Viewport = {
     themeColor: "#000000",
@@ -18,13 +19,6 @@ export const metadata: Metadata = {
     },
 };
 
-import { AppRouterCacheProvider } from '@mui/material-nextjs/v15-appRouter';
-import { ThemeProvider } from '@mui/material/styles';
-import CssBaseline from '@mui/material/CssBaseline';
-import theme from '@/theme';
-
-import { LanguageProvider } from '@/lib/i18n';
-
 export default function RootLayout({
     children,
 }: Readonly<{
@@ -33,14 +27,7 @@ export default function RootLayout({
     return (
         <html lang="en">
             <body>
-                <AppRouterCacheProvider>
-                    <ThemeProvider theme={theme}>
-                        <CssBaseline />
-                        <LanguageProvider>
-                            {children}
-                        </LanguageProvider>
-                    </ThemeProvider>
-                </AppRouterCacheProvider>
+                <ThemeRegistry>{children}</ThemeRegistry>
             </body>
         </html>
     );

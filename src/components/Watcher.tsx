@@ -6,7 +6,6 @@ import { supabase } from "@/lib/supabase";
 import { getVisitorId } from "@/lib/visitor";
 import InviteModal from "./InviteModal";
 import Queue from "./Queue";
-import { useTranslation } from "@/lib/i18n";
 
 import Box from "@mui/material/Box";
 import AppBar from "@mui/material/AppBar";
@@ -26,6 +25,7 @@ import VolumeOffIcon from "@mui/icons-material/VolumeOff";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import PauseIcon from "@mui/icons-material/Pause";
 import Slider from "@mui/material/Slider";
+import { useTranslation } from "react-i18next";
 
 interface WatcherProps {
     roomId: string;
